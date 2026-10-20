@@ -1,0 +1,17 @@
+{
+  "name": "vector-tactical",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server/index.js",
+    "start": "node server/index.js",
+    "assets": "node scripts/gen-sfx.mjs && node scripts/gen-models.mjs"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
+    "three": "^0.170.0"
+  }
+}

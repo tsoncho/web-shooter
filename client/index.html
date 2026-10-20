@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VECTOR Tactical</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div id="lobby" class="lobby">
+      <div class="lobby-panel">
+        <p class="eyebrow">Tactical Multiplayer</p>
+        <h1>VECTOR</h1>
+        <p class="sub">
+          Attackers plant. Defenders hold. Original map &amp; CC0 assets — not affiliated with any other shooter.
+        </p>
+        <label>
+          Callsign
+          <input id="name-input" maxlength="16" value="Operative" autocomplete="off" />
+        </label>
+        <label>
+          Room code
+          <input id="room-input" maxlength="6" placeholder="Leave blank to create" autocomplete="off" />
+        </label>
+        <div class="team-pick">
+          <button type="button" class="team-btn active" data-team="0">Attackers</button>
+          <button type="button" class="team-btn" data-team="1">Defenders</button>
+        </div>
+        <button id="join-btn" type="button">Enter Match</button>
+        <p id="lobby-error" class="error"></p>
+        <ul class="controls">
+          <li><kbd>WASD</kbd> Move · <kbd>Shift</kbd> Sprint · <kbd>Space</kbd> Jump</li>
+          <li><kbd>Mouse</kbd> Aim · <kbd>Click</kbd> Fire · <kbd>R</kbd> Reload · <kbd>RMB</kbd> ADS</li>
+          <li><kbd>E</kbd> Plant / Defuse · <kbd>B</kbd> Buy · <kbd>Tab</kbd> Scoreboard</li>
+        </ul>
+      </div>
+    </div>
+
+    <div id="hud" class="hud hidden">
+      <div class="top-bar">
+        <div class="score">
+          <span id="score-a" class="atk">0</span>
+          <span class="sep">:</span>
+          <span id="score-d" class="def">0</span>
+        </div>
+        <div class="round-meta">
+          <div id="phase-label">WARMUP</div>
+          <div id="timer">0:00</div>
+        </div>
+        <div id="bomb-status" class="bomb-status"></div>
+      </div>
+
+      <div class="bottom-bar">
+        <div class="vitals">
+          <div><span class="lbl">HP</span> <span id="hp">100</span></div>
+          <div><span class="lbl">ARM</span> <span id="armor">0</span></div>
+          <div><span class="lbl">$</span> <span id="money">800</span></div>
+        </div>
+        <div class="ammo">
+          <span id="mag">12</span><span class="dim">/</span><span id="reserve">36</span>
+          <div id="weapon-name" class="wname">Sidearm</div>
+        </div>
+      </div>
+
+      <div id="crosshair" class="crosshair"></div>
+      <div id="hit-marker" class="hit-marker"></div>
+      <div id="damage-vignette" class="damage-vignette"></div>
+      <div id="interact" class="interact"></div>
+      <div id="killfeed" class="killfeed"></div>
+      <div id="banner" class="banner"></div>
+
+      <div id="buy-menu" class="buy-menu hidden">
+        <h2>Buy Menu</h2>
+        <p class="muted">Freeze time only</p>
+        <button data-buy="pistol">Sidearm — $0</button>
+        <button data-buy="smg">SMG — $1500</button>
+        <button data-buy="rifle">Rifle — $2700</button>
+        <button data-buy="armor">Armor — $1000</button>
+        <button data-buy="kit">Defuse Kit — $400</button>
+        <p class="muted">Press B to close</p>
+      </div>
+
+      <div id="scoreboard" class="scoreboard hidden">
+        <h2>Scoreboard</h2>
+        <div class="cols">
+          <div>
+            <h3 class="atk">Attackers</h3>
+            <ul id="board-a"></ul>
+          </div>
+          <div>
+            <h3 class="def">Defenders</h3>
+            <ul id="board-d"></ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <canvas id="game"></canvas>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "/node_modules/three/build/three.module.js",
+          "three/addons/": "/node_modules/three/examples/jsm/",
+          "socket.io-client": "/node_modules/socket.io-client/dist/socket.io.esm.min.js",
+          "shared/constants.js": "/shared/constants.js"
+        }
+      }
+    </script>
+    <script type="module" src="/js/main.js"></script>
+  </body>
+</html>
