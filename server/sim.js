@@ -7,10 +7,7 @@ import {
   WEAPON,
   WEAPONS,
 } from "../shared/constants.js";
-
-function clamp(v, a, b) {
-  return Math.max(a, Math.min(b, v));
-}
+import { aimDirection, clamp, wishXZ } from "../shared/math.js";
 
 function len2(x, z) {
   return Math.hypot(x, z);
@@ -192,14 +189,11 @@ export function integratePlayer(p, dt) {
     p.vy -= MATCH.gravity * dt;
   }
 
-  const syn = Math.sin(p.yaw);
-  const cos = Math.cos(p.yaw);
   const ax = clamp(inp.ax, -1, 1);
   const az = clamp(inp.az, -1, 1);
-  let mx = cos * ax + syn * az;
-  let mz = -syn * ax + cos * az;
+  let { x: mx, z: mz } = wishXZ(p.yaw, ax, az);
   const ml = len2(mx, mz);
-  if (ml > 1) {
+  if (ml > 1e-6) {
     mx /= ml;
     mz /= ml;
   }
@@ -233,25 +227,21 @@ export function tryFire(p, players) {
   p.fireCd = 60 / w.rpm;
 
   const moving = len2(p.vx, p.vz) > 0.4;
-  let spread = p.ads ? w.adsSpread : w.spread;
-  if (moving) spread += w.moveSpread;
-  spread += w.recoil * (Math.random() * 0.6);
+  let spread = p.ads ? w.adsSpread : w.spread * 0.65;
+  if (moving) spread += w.moveSpread * 0.5;
+  spread += w.recoil * (Math.random() * 0.35);
 
   const yaw = p.yaw + (Math.random() - 0.5) * spread * 2;
   const pitch = p.pitch + (Math.random() - 0.5) * spread * 2;
-  const dir = {
-    x: Math.sin(yaw) * Math.cos(pitch),
-    y: Math.sin(pitch),
-    z: Math.cos(yaw) * Math.cos(pitch),
-  };
+  const dir = aimDirection(yaw, pitch);
   const origin = { x: p.x, y: p.y, z: p.z };
 
   let best = null;
   let bestT = w.range;
   for (const t of players) {
     if (t.id === p.id || !t.alive || t.team === p.team) continue;
-    const hit = rayCapsule(origin, dir, t, MATCH.playerRadius, MATCH.eyeHeight);
-    if (hit && hit.t < bestT) {
+    const hit = rayCapsule(origin, dir, t, MATCH.playerRadius + 0.15, MATCH.eyeHeight);
+    if (hit && hit.t < bestT && hit.t > 0.15) {
       bestT = hit.t;
       best = { target: t, ...hit };
     }
@@ -332,24 +322,28 @@ function applyDamage(t, dmg) {
   }
 }
 
-function rayCapsule(o, d, t, radius, height) {
-  // body cylinder approx + head sphere
-  const bodyY0 = 0.2;
-  const bodyY1 = height - 0.25;
+function rayCapsule(o, d, t, radius, eyeHeight) {
+  // Players stand on y=0; eye is at eyeHeight. Hit volume is a standing capsule.
+  const feet = 0.15;
+  const headY = eyeHeight + 0.12;
+  const chestTop = eyeHeight - 0.2;
   let best = null;
 
-  // head
-  const hx = t.x;
-  const hy = t.y + 0.12;
-  const hz = t.z;
-  const head = raySphere(o, d, hx, hy, hz, 0.22);
-  if (head) best = { t: head, head: true, px: o.x + d.x * head, py: o.y + d.y * head, pz: o.z + d.z * head };
+  const head = raySphere(o, d, t.x, headY, t.z, 0.28);
+  if (head != null && head > 0) {
+    best = {
+      t: head,
+      head: true,
+      px: o.x + d.x * head,
+      py: o.y + d.y * head,
+      pz: o.z + d.z * head,
+    };
+  }
 
-  // body: ray vs vertical capsule simplified as thick ray distance to segment
-  for (let s = 0; s <= 8; s++) {
-    const yy = bodyY0 + ((bodyY1 - bodyY0) * s) / 8;
+  for (let s = 0; s <= 10; s++) {
+    const yy = feet + ((chestTop - feet) * s) / 10;
     const tt = raySphere(o, d, t.x, yy, t.z, radius);
-    if (tt != null && (!best || tt < best.t)) {
+    if (tt != null && tt > 0 && (!best || tt < best.t)) {
       best = {
         t: tt,
         head: false,
@@ -547,19 +541,15 @@ export function botBrain(p, players, bomb, phase) {
   const dx = tx - p.x;
   const dz = tz - p.z;
   const dist = len2(dx, dz) || 1;
-  const desiredYaw = Math.atan2(dx, dz);
+  // yaw 0 looks down -Z → atan2(-dx, -dz)
+  const desiredYaw = Math.atan2(-dx, -dz);
   let yawErr = desiredYaw - p.yaw;
   while (yawErr > Math.PI) yawErr -= Math.PI * 2;
   while (yawErr < -Math.PI) yawErr += Math.PI * 2;
-  p.input.yaw = p.yaw + clamp(yawErr, -0.12, 0.12);
+  p.input.yaw = p.yaw + clamp(yawErr, -0.15, 0.15);
   p.input.pitch = 0;
-  // move in local space toward target
-  const syn = Math.sin(p.input.yaw);
-  const cos = Math.cos(p.input.yaw);
-  const worldAx = dx / dist;
-  const worldAz = dz / dist;
-  p.input.ax = clamp(worldAx * cos + worldAz * syn, -1, 1);
-  p.input.az = clamp(-worldAx * syn + worldAz * cos, -1, 1);
+  p.input.ax = 0;
+  p.input.az = dist > 1.2 ? 1 : 0;
   p.input.sprint = dist > 8;
   p.input.jump = false;
   p.input.reload = p.mag === 0;
@@ -575,11 +565,12 @@ export function botBrain(p, players, bomb, phase) {
     }
   }
   p.input.fire = false;
-  if (nearest && nd < 28) {
-    const aimYaw = Math.atan2(nearest.x - p.x, nearest.z - p.z);
+  if (nearest && nd < 32) {
+    const aimYaw = Math.atan2(-(nearest.x - p.x), -(nearest.z - p.z));
     p.input.yaw = aimYaw;
-    p.input.pitch = Math.atan2(nearest.y - p.y, nd) * 0.85;
-    p.input.fire = Math.random() < (phase === "live" ? 0.55 : 0.2);
+    p.input.pitch = Math.atan2(nearest.y - p.y, nd);
+    p.input.az = nd > 4 ? 1 : 0;
+    p.input.fire = Math.random() < (phase === "live" || phase === "warmup" ? 0.5 : 0.15);
   }
 
   p.input.plant =

@@ -109,19 +109,20 @@ export const MATCH = {
 export const MAP = {
   half: 36,
   bombsite: { x: -22, z: -22, half: 5.5 },
+  // yaw 0 = look -Z; attackers spawn NE facing SW (~π/4), defenders SW facing NE (~-3π/4)
   attackerSpawns: [
-    { x: 24, z: 24, yaw: Math.PI },
-    { x: 26, z: 22, yaw: Math.PI },
-    { x: 22, z: 26, yaw: Math.PI },
-    { x: 28, z: 20, yaw: Math.PI },
-    { x: 20, z: 28, yaw: Math.PI },
+    { x: 24, z: 24, yaw: Math.PI / 4 },
+    { x: 26, z: 22, yaw: Math.PI / 4 },
+    { x: 22, z: 26, yaw: Math.PI / 4 },
+    { x: 28, z: 20, yaw: Math.PI / 4 },
+    { x: 20, z: 28, yaw: Math.PI / 4 },
   ],
   defenderSpawns: [
-    { x: -24, z: -18, yaw: 0 },
-    { x: -26, z: -20, yaw: 0 },
-    { x: -20, z: -16, yaw: 0 },
-    { x: -28, z: -22, yaw: 0 },
-    { x: -18, z: -24, yaw: 0 },
+    { x: -24, z: -18, yaw: (-3 * Math.PI) / 4 },
+    { x: -26, z: -20, yaw: (-3 * Math.PI) / 4 },
+    { x: -20, z: -16, yaw: (-3 * Math.PI) / 4 },
+    { x: -28, z: -22, yaw: (-3 * Math.PI) / 4 },
+    { x: -18, z: -24, yaw: (-3 * Math.PI) / 4 },
   ],
   colliders: [
     { x: 0, z: 0, halfX: 2.2, halfZ: 2.2 },

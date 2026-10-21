@@ -1,38 +1,15 @@
 import * as THREE from "three";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { TEAM } from "shared/constants.js";
 
 export class EntityManager {
   constructor(scene) {
     this.scene = scene;
     this.meshes = new Map();
-    this.template = null;
     this.bombMesh = null;
-    this.loader = new GLTFLoader();
     this.tracers = [];
   }
 
   async load() {
-    try {
-      const gltf = await this.loader.loadAsync("/assets/models/operator.glb");
-      this.template = gltf.scene;
-      const box = new THREE.Box3().setFromObject(this.template);
-      const size = new THREE.Vector3();
-      box.getSize(size);
-      if (size.y > 0.01) {
-        const scale = 1.75 / size.y;
-        this.template.scale.setScalar(scale);
-        this.template.position.y = -box.min.y * scale;
-      }
-      this.template.traverse((o) => {
-        if (o.isMesh) {
-          o.castShadow = true;
-          o.receiveShadow = true;
-        }
-      });
-    } catch {
-      this.template = null;
-    }
     this.bombMesh = new THREE.Mesh(
       new THREE.BoxGeometry(0.45, 0.25, 0.35),
       new THREE.MeshStandardMaterial({
@@ -48,39 +25,53 @@ export class EntityManager {
   }
 
   #makeProxy(team) {
-    if (this.template) {
-      const root = this.template.clone(true);
-      root.scale.setScalar(1);
-      const color = team === TEAM.ATTACKERS ? 0xe8a23a : 0x4db3ff;
-      root.traverse((o) => {
-        if (o.isMesh && o.material) {
-          o.material = o.material.clone();
-          if (o.material.emissive) {
-            o.material.emissive = new THREE.Color(color);
-            o.material.emissiveIntensity = 0.15;
-          }
-        }
-      });
-      return root;
-    }
     const g = new THREE.Group();
-    const body = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.4, 0.95, 4, 8),
-      new THREE.MeshStandardMaterial({
-        color: team === TEAM.ATTACKERS ? 0x8a5a28 : 0x2a5a7a,
-        roughness: 0.55,
-        metalness: 0.25,
-      })
+    const isAtk = team === TEAM.ATTACKERS;
+    const suit = new THREE.MeshStandardMaterial({
+      color: isAtk ? 0x6a4a28 : 0x2a4a62,
+      roughness: 0.55,
+      metalness: 0.28,
+    });
+    const vest = new THREE.MeshStandardMaterial({
+      color: isAtk ? 0x3a2a18 : 0x1a2a38,
+      roughness: 0.65,
+      metalness: 0.2,
+    });
+    const skin = new THREE.MeshStandardMaterial({ color: 0xc4a882, roughness: 0.75 });
+    const accent = new THREE.MeshStandardMaterial({
+      color: isAtk ? 0xe8a23a : 0x4db3ff,
+      emissive: isAtk ? 0xe8a23a : 0x4db3ff,
+      emissiveIntensity: 0.35,
+    });
+
+    const legs = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.19, 0.8, 10), suit);
+    legs.position.y = 0.4;
+    legs.castShadow = true;
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.65, 0.3), vest);
+    torso.position.y = 1.1;
+    torso.castShadow = true;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 14, 14), skin);
+    head.position.y = 1.62;
+    head.castShadow = true;
+    const helm = new THREE.Mesh(
+      new THREE.SphereGeometry(0.19, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.55),
+      suit
     );
-    body.position.y = 1.0;
-    body.castShadow = true;
-    g.add(body);
-    const head = new THREE.Mesh(
-      new THREE.SphereGeometry(0.22, 12, 12),
-      new THREE.MeshStandardMaterial({ color: 0xd2b48c, roughness: 0.7 })
+    helm.position.y = 1.66;
+    const armL = new THREE.Mesh(new THREE.CapsuleGeometry(0.07, 0.32, 4, 8), suit);
+    armL.position.set(-0.36, 1.1, 0.05);
+    const armR = armL.clone();
+    armR.position.x = 0.36;
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.05, 0.32), accent);
+    stripe.position.set(0, 1.28, 0);
+    const gun = new THREE.Mesh(
+      new THREE.BoxGeometry(0.06, 0.08, 0.55),
+      new THREE.MeshStandardMaterial({ color: 0x151a1e, metalness: 0.8, roughness: 0.3 })
     );
-    head.position.y = 1.72;
-    g.add(head);
+    // Character faces -Z (look yaw 0); gun held forward
+    gun.position.set(0.26, 1.05, -0.35);
+
+    g.add(legs, torso, head, helm, armL, armR, stripe, gun);
     return g;
   }
 
@@ -99,6 +90,7 @@ export class EntityManager {
       entry.mesh.visible = !hide;
       if (!hide) {
         entry.mesh.position.set(p.x, 0, p.z);
+        // Model faces -Z at rotation 0, matching aim yaw 0
         entry.mesh.rotation.y = p.yaw;
       }
     }
@@ -130,10 +122,10 @@ export class EntityManager {
       new THREE.LineBasicMaterial({
         color: 0xffe0a0,
         transparent: true,
-        opacity: 0.85,
+        opacity: 0.9,
       })
     );
-    line.userData.life = 0.07;
+    line.userData.life = 0.08;
     this.scene.add(line);
     this.tracers.push(line);
   }

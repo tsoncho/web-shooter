@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { PHASE, TEAM, WEAPONS } from "shared/constants.js";
+import { wishXZ } from "/shared/math.js";
 import { NetClient } from "./net.js";
 import { createDepotMap } from "./map.js";
 import { EntityManager } from "./entities.js";
@@ -27,6 +28,9 @@ export class Game {
     this.recoilPunch = 0;
     this.baseFov = 75;
     this.team = TEAM.ATTACKERS;
+    this.spawnSynced = false;
+    this.wasAlive = true;
+    this.reloadPulse = false;
 
     this.renderer = new THREE.WebGLRenderer({
       canvas,
@@ -39,7 +43,7 @@ export class Game {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.2;
+    this.renderer.toneMappingExposure = 1.35;
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(this.baseFov, innerWidth / innerHeight, 0.05, 160);
@@ -106,7 +110,9 @@ export class Game {
 
   #bindInput() {
     window.addEventListener("keydown", (e) => {
+      if (e.repeat) return;
       this.keys.add(e.code);
+      if (e.code === "KeyR") this.reloadPulse = true;
       if (e.code === "KeyB") {
         if (this.snap?.phase === PHASE.BUY) this.hud.toggleBuy();
       }
@@ -158,15 +164,30 @@ export class Game {
       this.prevHp = this.me.health;
       this.view.setWeapon(this.me.weapon);
       const obj = this.yawObject;
-      if (!this.locked || !this.me.alive) {
+
+      // Hard-sync on spawn / respawn / unlock so prediction doesn't fight the server
+      const justRevived = this.me.alive && !this.wasAlive;
+      if (!this.spawnSynced || !this.me.alive || justRevived || !this.locked) {
         obj.position.set(this.me.x, this.me.y, this.me.z);
-        this.look.yaw = this.me.yaw;
-        this.look.pitch = this.me.pitch;
+        if (!this.me.alive || justRevived || !this.spawnSynced) {
+          this.look.yaw = this.me.yaw;
+          this.look.pitch = this.me.pitch;
+        }
+        this.spawnSynced = this.me.alive;
       } else {
-        obj.position.x = THREE.MathUtils.lerp(obj.position.x, this.me.x, 0.35);
-        obj.position.z = THREE.MathUtils.lerp(obj.position.z, this.me.z, 0.35);
-        obj.position.y = this.me.y;
+        const dx = this.me.x - obj.position.x;
+        const dz = this.me.z - obj.position.z;
+        const err = Math.hypot(dx, dz);
+        if (err > 2.5) {
+          obj.position.set(this.me.x, this.me.y, this.me.z);
+        } else {
+          const k = err > 0.6 ? 0.35 : 0.18;
+          obj.position.x += dx * k;
+          obj.position.z += dz * k;
+          obj.position.y = this.me.y;
+        }
       }
+      this.wasAlive = this.me.alive;
     }
 
     this.entities.sync(snap.players, this.net.id, snap.bomb);
@@ -229,13 +250,14 @@ export class Game {
       yaw: this.look.yaw,
       pitch: this.look.pitch - this.recoilPunch * 0.35,
       jump: this.keys.has("Space"),
-      fire: this.fireHeld && this.locked,
-      reload: this.keys.has("KeyR"),
+      fire: this.fireHeld && this.locked && this.me?.alive,
+      reload: this.reloadPulse,
       ads: this.ads,
       sprint: this.keys.has("ShiftLeft") || this.keys.has("ShiftRight"),
       plant: this.keys.has("KeyE"),
       defuse: this.keys.has("KeyE"),
     });
+    this.reloadPulse = false;
   }
 
   #predictLocal(dt) {
@@ -249,16 +271,14 @@ export class Game {
 
     if (!this.locked || !this.me?.alive) return;
 
-    const speed = 6.2 * (this.ads ? 0.72 : 1);
+    const sprint = this.keys.has("ShiftLeft") || this.keys.has("ShiftRight");
+    const speed = 6.2 * (sprint && !this.ads ? 1.15 : 1) * (this.ads ? 0.72 : 1);
     const ax =
       (this.keys.has("KeyD") ? 1 : 0) - (this.keys.has("KeyA") ? 1 : 0);
     const az =
       (this.keys.has("KeyW") ? 1 : 0) - (this.keys.has("KeyS") ? 1 : 0);
     if (ax || az) {
-      const syn = Math.sin(this.look.yaw);
-      const cos = Math.cos(this.look.yaw);
-      let mx = cos * ax + syn * az;
-      let mz = -syn * ax + cos * az;
+      let { x: mx, z: mz } = wishXZ(this.look.yaw, ax, az);
       const len = Math.hypot(mx, mz) || 1;
       mx /= len;
       mz /= len;
@@ -267,7 +287,7 @@ export class Game {
       this.footT -= dt;
       if (this.footT <= 0) {
         this.audio.play("footstep", { volume: 0.15, rate: 0.9 + Math.random() * 0.2 });
-        this.footT = this.keys.has("ShiftLeft") ? 0.28 : 0.38;
+        this.footT = sprint ? 0.28 : 0.38;
       }
     }
   }

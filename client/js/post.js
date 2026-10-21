@@ -11,14 +11,15 @@ export function createPost(renderer, scene, camera) {
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
 
+  // Light SSAO — keep readable in a dark arena
   const ssao = new SSAOPass(scene, camera, size.x, size.y);
-  ssao.kernelRadius = 6;
-  ssao.minDistance = 0.002;
-  ssao.maxDistance = 0.1;
+  ssao.kernelRadius = 4;
+  ssao.minDistance = 0.005;
+  ssao.maxDistance = 0.08;
   ssao.output = SSAOPass.OUTPUT.Default;
   composer.addPass(ssao);
 
-  const bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.18, 0.5, 0.92);
+  const bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.12, 0.55, 0.93);
   composer.addPass(bloom);
 
   const smaa = new SMAAPass(size.x * renderer.getPixelRatio(), size.y * renderer.getPixelRatio());
