@@ -16,8 +16,14 @@ export class Hud {
       mag: document.getElementById("mag"),
       reserve: document.getElementById("reserve"),
       weapon: document.getElementById("weapon-name"),
+      slots: document.getElementById("weapon-slots"),
       hit: document.getElementById("hit-marker"),
+      killConfirm: document.getElementById("kill-confirm"),
+      killConfirmLabel: document.getElementById("kill-confirm-label"),
       dmg: document.getElementById("damage-vignette"),
+      death: document.getElementById("death-overlay"),
+      deathBy: document.getElementById("death-by"),
+      crosshair: document.getElementById("crosshair"),
       interact: document.getElementById("interact"),
       killfeed: document.getElementById("killfeed"),
       banner: document.getElementById("banner"),
@@ -31,6 +37,8 @@ export class Hud {
     this.bannerT = 0;
     this.hitT = 0;
     this.dmgT = 0;
+    this.killConfirmT = 0;
+    this.dead = false;
   }
 
   showGame() {
@@ -58,9 +66,49 @@ export class Hud {
     this.hitT = 0.16;
   }
 
+  punchCrosshair() {
+    this.els.crosshair?.classList.add("punch");
+    clearTimeout(this._crossTimer);
+    this._crossTimer = setTimeout(() => {
+      this.els.crosshair?.classList.remove("punch");
+    }, 70);
+  }
+
   flashDamage() {
     this.els.dmg.classList.add("show");
     this.dmgT = 0.25;
+  }
+
+  showKillConfirm(victimName, headshot = false) {
+    const el = this.els.killConfirm;
+    el.classList.remove("show", "headshot");
+    void el.offsetWidth;
+    el.classList.toggle("headshot", !!headshot);
+    this.els.killConfirmLabel.textContent = headshot ? "HEADSHOT" : "ELIMINATED";
+    el.setAttribute("aria-hidden", "false");
+    el.classList.add("show");
+    this.killConfirmT = 0.85;
+  }
+
+  showDeath(killerName) {
+    this.dead = true;
+    this.els.death.classList.add("show");
+    this.els.death.setAttribute("aria-hidden", "false");
+    this.els.crosshair?.classList.add("hidden-death");
+    this.els.deathBy.innerHTML = killerName
+      ? `Eliminated by <strong>${esc(killerName)}</strong>`
+      : "Eliminated";
+    this.els.dmg.classList.add("show");
+  }
+
+  clearDeath() {
+    if (!this.dead) return;
+    this.dead = false;
+    this.els.death.classList.remove("show");
+    this.els.death.setAttribute("aria-hidden", "true");
+    this.els.crosshair?.classList.remove("hidden-death");
+    this.els.dmg.classList.remove("show");
+    this.els.deathBy.textContent = "";
   }
 
   banner(text, seconds = 2.5) {
@@ -70,6 +118,7 @@ export class Hud {
 
   pushKill(killer, victim, head) {
     const row = document.createElement("div");
+    row.className = "killfeed-row";
     row.innerHTML = `<span class="atk">${esc(killer)}</span> ${head ? "◉" : "–"} <span class="def">${esc(victim)}</span>`;
     this.els.killfeed.prepend(row);
     while (this.els.killfeed.children.length > 6) {
@@ -84,13 +133,26 @@ export class Hud {
       this.hitT -= dt;
       if (this.hitT <= 0) this.els.hit.classList.remove("show");
     }
-    if (this.dmgT > 0) {
+    if (this.dmgT > 0 && !this.dead) {
       this.dmgT -= dt;
       if (this.dmgT <= 0) this.els.dmg.classList.remove("show");
+    }
+    if (this.killConfirmT > 0) {
+      this.killConfirmT -= dt;
+      if (this.killConfirmT <= 0) {
+        this.els.killConfirm.classList.remove("show", "headshot");
+        this.els.killConfirm.setAttribute("aria-hidden", "true");
+      }
     }
     if (this.bannerT > 0) {
       this.bannerT -= dt;
       if (this.bannerT <= 0) this.els.banner.textContent = "";
+    }
+
+    if (me?.alive) this.clearDeath();
+    else if (me && !me.alive && !this.dead) {
+      // fallback if kill event missed
+      this.showDeath("");
     }
 
     this.els.scoreA.textContent = String(snap.score?.[TEAM.ATTACKERS] ?? 0);
@@ -113,6 +175,13 @@ export class Hud {
       this.els.mag.textContent = String(me.mag ?? 0);
       this.els.reserve.textContent = String(me.reserve ?? 0);
       this.els.weapon.textContent = WEAPONS[me.weapon]?.name || me.weapon;
+      this.els.slots?.querySelectorAll(".wslot").forEach((el) => {
+        const id = el.dataset.slot;
+        const owned = !!me.owned?.[id];
+        el.classList.toggle("locked", !owned);
+        el.classList.toggle("owned", owned);
+        el.classList.toggle("active", me.weapon === id);
+      });
     }
 
     // interact prompt

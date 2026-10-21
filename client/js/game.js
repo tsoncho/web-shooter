@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { PHASE, TEAM, WEAPONS } from "shared/constants.js";
+import { PHASE, TEAM, WEAPON_ORDER, WEAPONS, recoilKick } from "shared/constants.js";
 import { wishXZ } from "/shared/math.js";
 import { NetClient } from "./net.js";
 import { createDepotMap } from "./map.js";
@@ -20,17 +20,25 @@ export class Game {
     this.look = { yaw: 0, pitch: 0 };
     this.locked = false;
     this.fireHeld = false;
+    this.fireClick = false;
     this.ads = false;
     this.snap = null;
     this.me = null;
     this.prevHp = 100;
     this.footT = 0;
-    this.recoilPunch = 0;
+    this.spray = 0;
+    this.sprayReset = 0;
+    this.viewPunch = { pitch: 0, yaw: 0 };
+    this.localVel = { x: 0, z: 0 };
+    this.wantWeapon = null;
+    this.lastWeapon = "pistol";
     this.baseFov = 75;
     this.team = TEAM.ATTACKERS;
     this.spawnSynced = false;
     this.wasAlive = true;
     this.reloadPulse = false;
+    this.deathCamT = 0;
+    this.deathCamActive = false;
 
     this.renderer = new THREE.WebGLRenderer({
       canvas,
@@ -113,6 +121,10 @@ export class Game {
       if (e.repeat) return;
       this.keys.add(e.code);
       if (e.code === "KeyR") this.reloadPulse = true;
+      if (e.code === "Digit1" || e.code === "Numpad1") this.#requestWeapon("pistol");
+      if (e.code === "Digit2" || e.code === "Numpad2") this.#requestWeapon("smg");
+      if (e.code === "Digit3" || e.code === "Numpad3") this.#requestWeapon("rifle");
+      if (e.code === "KeyQ") this.#requestWeapon(this.lastWeapon);
       if (e.code === "KeyB") {
         if (this.snap?.phase === PHASE.BUY) this.hud.toggleBuy();
       }
@@ -130,13 +142,25 @@ export class Game {
         this.#lock();
         return;
       }
-      if (e.button === 0) this.fireHeld = true;
+      if (e.button === 0) {
+        this.fireHeld = true;
+        this.fireClick = true;
+      }
       if (e.button === 2) this.ads = true;
     });
     window.addEventListener("mouseup", (e) => {
       if (e.button === 0) this.fireHeld = false;
       if (e.button === 2) this.ads = false;
     });
+    window.addEventListener(
+      "wheel",
+      (e) => {
+        if (!this.locked || !this.me) return;
+        e.preventDefault();
+        this.#cycleWeapon(e.deltaY > 0 ? 1 : -1);
+      },
+      { passive: false }
+    );
     this.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
     document.addEventListener("pointerlockchange", () => {
       this.locked = document.pointerLockElement === this.canvas;
@@ -148,6 +172,24 @@ export class Game {
       this.look.pitch -= e.movementY * sens;
       this.look.pitch = Math.max(-1.4, Math.min(1.4, this.look.pitch));
     });
+  }
+
+  #requestWeapon(id) {
+    if (!this.me?.owned?.[id]) {
+      if (id === "smg" || id === "rifle") this.hud.banner("Buy that gun first (B)", 1.4);
+      return;
+    }
+    if (this.me.weapon && this.me.weapon !== id) this.lastWeapon = this.me.weapon;
+    this.wantWeapon = id;
+  }
+
+  #cycleWeapon(dir) {
+    if (!this.me?.owned) return;
+    const owned = WEAPON_ORDER.filter((id) => this.me.owned[id]);
+    if (owned.length < 2) return;
+    const cur = Math.max(0, owned.indexOf(this.me.weapon));
+    const next = owned[(cur + dir + owned.length) % owned.length];
+    this.#requestWeapon(next);
   }
 
   #onSnap(snap) {
@@ -162,7 +204,9 @@ export class Game {
     if (this.me) {
       if (this.me.health < this.prevHp) this.hud.flashDamage();
       this.prevHp = this.me.health;
-      this.view.setWeapon(this.me.weapon);
+      if (this.me.weapon !== this.view.weapon) {
+        this.view.setWeapon(this.me.weapon, true);
+      }
       const obj = this.yawObject;
 
       // Hard-sync on spawn / respawn / unlock so prediction doesn't fight the server
@@ -201,8 +245,16 @@ export class Game {
       const pos = new THREE.Vector3(ev.ox, ev.oy, ev.oz);
       this.audio.shoot(ev.weapon, pos);
       if (ev.shooterId === this.net.id) {
-        this.view.punch();
-        this.recoilPunch += WEAPONS[ev.weapon]?.recoil || 0.02;
+        const kick = recoilKick(ev.weapon, this.spray);
+        this.spray += 1;
+        this.sprayReset = 0.22;
+        // Real aim climb (player counters with mouse) + short view punch
+        this.look.pitch = Math.min(1.4, this.look.pitch + kick.pitch * 0.85);
+        this.look.yaw += kick.yaw * 0.85;
+        this.viewPunch.pitch += kick.pitch * 0.55;
+        this.viewPunch.yaw += kick.yaw * 0.55;
+        this.view.punch(1 + kick.pitch * 8, kick.yaw * 10);
+        this.hud.punchCrosshair();
         if (ev.hit) {
           this.hud.flashHit();
           this.audio.play(ev.head ? "headshot" : "hit", { volume: 0.35 });
@@ -211,7 +263,20 @@ export class Game {
     }
     if (ev.type === "kill") {
       const names = Object.fromEntries((this.snap?.players || prev?.players || []).map((p) => [p.id, p.name]));
-      this.hud.pushKill(names[ev.killer] || "?", names[ev.victim] || "?", ev.head);
+      const killerName = names[ev.killer] || "?";
+      const victimName = names[ev.victim] || "?";
+      this.hud.pushKill(killerName, victimName, ev.head);
+      if (ev.victim !== this.net.id) this.entities.playDeath(ev.victim);
+
+      if (ev.killer === this.net.id && ev.victim !== this.net.id) {
+        this.hud.showKillConfirm(victimName, !!ev.head);
+        this.audio.play(ev.head ? "headshot" : "hit", { volume: 0.45, rate: ev.head ? 1.15 : 1 });
+      }
+      if (ev.victim === this.net.id) {
+        this.hud.showDeath(killerName);
+        this.#startDeathCam();
+        this.audio.play("explode", { volume: 0.22, rate: 1.6 });
+      }
     }
     if (ev.type === "phase") {
       this.audio.play("round", { volume: 0.3 });
@@ -242,28 +307,81 @@ export class Game {
     const az =
       (this.keys.has("KeyW") || this.keys.has("ArrowUp") ? 1 : 0) -
       (this.keys.has("KeyS") || this.keys.has("ArrowDown") ? 1 : 0);
+    const wpn = WEAPONS[this.me?.weapon] || WEAPONS.pistol;
+    const fire =
+      this.locked &&
+      this.me?.alive &&
+      (wpn.automatic ? this.fireHeld : this.fireClick);
     this.seq += 1;
     this.net.sendInput({
       seq: this.seq,
       ax,
       az,
       yaw: this.look.yaw,
-      pitch: this.look.pitch - this.recoilPunch * 0.35,
+      pitch: this.look.pitch,
       jump: this.keys.has("Space"),
-      fire: this.fireHeld && this.locked && this.me?.alive,
+      fire,
       reload: this.reloadPulse,
       ads: this.ads,
       sprint: this.keys.has("ShiftLeft") || this.keys.has("ShiftRight"),
       plant: this.keys.has("KeyE"),
       defuse: this.keys.has("KeyE"),
+      wantWeapon: this.wantWeapon,
     });
     this.reloadPulse = false;
+    this.fireClick = false;
+    this.wantWeapon = null;
+  }
+
+  #startDeathCam() {
+    this.deathCamActive = true;
+    this.deathCamT = 0;
+    this.view.root.visible = false;
+  }
+
+  #updateDeathCam(dt) {
+    if (!this.deathCamActive) return;
+    this.deathCamT += dt;
+    const t = Math.min(1, this.deathCamT / 0.55);
+    const ease = 1 - Math.pow(1 - t, 3);
+    // Tip camera toward the ground and sink slightly
+    this.pitchObject.rotation.x = THREE.MathUtils.lerp(
+      this.look.pitch,
+      1.15,
+      ease
+    );
+    this.yawObject.rotation.z = THREE.MathUtils.lerp(0, 0.35, ease);
+    this.yawObject.position.y = THREE.MathUtils.lerp(
+      this.me?.y ?? 1.65,
+      0.45,
+      ease
+    );
+    if (this.me?.alive) {
+      this.deathCamActive = false;
+      this.yawObject.rotation.z = 0;
+      this.view.root.visible = true;
+    }
   }
 
   #predictLocal(dt) {
-    this.yawObject.rotation.y = this.look.yaw;
-    this.pitchObject.rotation.x = this.look.pitch - this.recoilPunch * 0.35;
-    this.recoilPunch = Math.max(0, this.recoilPunch - dt * 1.8);
+    if (this.deathCamActive || (this.me && !this.me.alive)) {
+      this.#updateDeathCam(dt);
+      return;
+    }
+
+    // View punch decays (extra kick on top of real aim climb)
+    const recover = 1 - Math.pow(0.0002, dt);
+    this.viewPunch.pitch *= 1 - recover * 0.85;
+    this.viewPunch.yaw *= 1 - recover * 0.85;
+    if (this.sprayReset > 0) {
+      this.sprayReset -= dt;
+      if (this.sprayReset <= 0) this.spray = 0;
+    }
+
+    this.yawObject.rotation.y = this.look.yaw + this.viewPunch.yaw;
+    this.pitchObject.rotation.x = this.look.pitch + this.viewPunch.pitch;
+    this.yawObject.rotation.z = 0;
+    this.view.root.visible = true;
 
     const targetFov = this.ads ? 55 : this.baseFov;
     this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, 1 - Math.pow(0.001, dt));
@@ -272,18 +390,27 @@ export class Game {
     if (!this.locked || !this.me?.alive) return;
 
     const sprint = this.keys.has("ShiftLeft") || this.keys.has("ShiftRight");
-    const speed = 6.2 * (sprint && !this.ads ? 1.15 : 1) * (this.ads ? 0.72 : 1);
+    const speed = 6.8 * (sprint && !this.ads ? 1.22 : 1) * (this.ads ? 0.72 : 1);
     const ax =
       (this.keys.has("KeyD") ? 1 : 0) - (this.keys.has("KeyA") ? 1 : 0);
     const az =
       (this.keys.has("KeyW") ? 1 : 0) - (this.keys.has("KeyS") ? 1 : 0);
+    let wishX = 0;
+    let wishZ = 0;
     if (ax || az) {
       let { x: mx, z: mz } = wishXZ(this.look.yaw, ax, az);
       const len = Math.hypot(mx, mz) || 1;
-      mx /= len;
-      mz /= len;
-      this.yawObject.position.x += mx * speed * dt;
-      this.yawObject.position.z += mz * speed * dt;
+      wishX = (mx / len) * speed;
+      wishZ = (mz / len) * speed;
+    }
+    const accel = 28 * dt;
+    this.localVel.x = approach(this.localVel.x, wishX, accel);
+    this.localVel.z = approach(this.localVel.z, wishZ, accel);
+    this.yawObject.position.x += this.localVel.x * dt;
+    this.yawObject.position.z += this.localVel.z * dt;
+
+    const moving = Math.hypot(this.localVel.x, this.localVel.z) > 1.2;
+    if (moving) {
       this.footT -= dt;
       if (this.footT <= 0) {
         this.audio.play("footstep", { volume: 0.15, rate: 0.9 + Math.random() * 0.2 });
@@ -312,4 +439,10 @@ export class Game {
     if (this.post) this.post.render();
     else this.renderer.render(this.scene, this.camera);
   };
+}
+
+function approach(current, target, maxDelta) {
+  const d = target - current;
+  if (Math.abs(d) <= maxDelta) return target;
+  return current + Math.sign(d) * maxDelta;
 }

@@ -7,6 +7,7 @@ export class EntityManager {
     this.meshes = new Map();
     this.bombMesh = null;
     this.tracers = [];
+    this.deaths = new Map();
   }
 
   async load() {
@@ -68,11 +69,26 @@ export class EntityManager {
       new THREE.BoxGeometry(0.06, 0.08, 0.55),
       new THREE.MeshStandardMaterial({ color: 0x151a1e, metalness: 0.8, roughness: 0.3 })
     );
-    // Character faces -Z (look yaw 0); gun held forward
     gun.position.set(0.26, 1.05, -0.35);
+    gun.name = "gun";
 
     g.add(legs, torso, head, helm, armL, armR, stripe, gun);
     return g;
+  }
+
+  playDeath(id) {
+    const entry = this.meshes.get(id);
+    if (!entry || this.deaths.has(id)) return;
+    const mesh = entry.mesh;
+    mesh.visible = true;
+    this.deaths.set(id, {
+      mesh,
+      t: 0,
+      yaw: mesh.rotation.y,
+      x: mesh.position.x,
+      z: mesh.position.z,
+      fallDir: Math.random() > 0.5 ? 1 : -1,
+    });
   }
 
   sync(players, localId, bomb) {
@@ -83,21 +99,42 @@ export class EntityManager {
       if (!entry) {
         const mesh = this.#makeProxy(p.team);
         this.scene.add(mesh);
-        entry = { mesh, team: p.team };
+        entry = {
+          mesh,
+          team: p.team,
+          tx: p.x,
+          tz: p.z,
+          tyaw: p.yaw,
+          vx: 0,
+          vz: 0,
+        };
+        mesh.position.set(p.x, 0, p.z);
+        mesh.rotation.y = p.yaw;
         this.meshes.set(p.id, entry);
       }
-      const hide = p.id === localId || !p.alive;
+
+      const dying = this.deaths.has(p.id);
+      const hide = p.id === localId || (!p.alive && !dying);
       entry.mesh.visible = !hide;
-      if (!hide) {
-        entry.mesh.position.set(p.x, 0, p.z);
-        // Model faces -Z at rotation 0, matching aim yaw 0
-        entry.mesh.rotation.y = p.yaw;
+
+      if (p.alive) {
+        this.deaths.delete(p.id);
+        entry.mesh.rotation.x = 0;
+        entry.mesh.rotation.z = 0;
+        entry.tx = p.x;
+        entry.tz = p.z;
+        entry.tyaw = p.yaw;
+        entry.vx = p.vx || 0;
+        entry.vz = p.vz || 0;
+      } else if (!dying && p.id !== localId) {
+        entry.mesh.visible = false;
       }
     }
     for (const [id, entry] of this.meshes) {
       if (!seen.has(id)) {
         this.scene.remove(entry.mesh);
         this.meshes.delete(id);
+        this.deaths.delete(id);
       }
     }
 
@@ -131,6 +168,23 @@ export class EntityManager {
   }
 
   update(dt) {
+    for (const [id, entry] of this.meshes) {
+      if (!entry.mesh.visible || this.deaths.has(id)) continue;
+      const k = 1 - Math.pow(0.0008, dt);
+      entry.mesh.position.x = THREE.MathUtils.lerp(entry.mesh.position.x, entry.tx, k);
+      entry.mesh.position.z = THREE.MathUtils.lerp(entry.mesh.position.z, entry.tz, k);
+      let dyaw = entry.tyaw - entry.mesh.rotation.y;
+      while (dyaw > Math.PI) dyaw -= Math.PI * 2;
+      while (dyaw < -Math.PI) dyaw += Math.PI * 2;
+      entry.mesh.rotation.y += dyaw * k;
+      const spd = Math.hypot(entry.vx, entry.vz);
+      if (spd > 1) {
+        entry.mesh.position.y = Math.sin(performance.now() * 0.014 * spd) * 0.03;
+      } else {
+        entry.mesh.position.y = THREE.MathUtils.lerp(entry.mesh.position.y, 0, k);
+      }
+    }
+
     for (let i = this.tracers.length - 1; i >= 0; i--) {
       const t = this.tracers[i];
       t.userData.life -= dt;
@@ -140,6 +194,23 @@ export class EntityManager {
         t.geometry.dispose();
         t.material.dispose();
         this.tracers.splice(i, 1);
+      }
+    }
+
+    for (const [id, d] of this.deaths) {
+      d.t += dt;
+      const ease = Math.min(1, d.t / 0.55);
+      const k = 1 - Math.pow(1 - ease, 3);
+      d.mesh.visible = true;
+      d.mesh.position.set(d.x, k * 0.15, d.z);
+      d.mesh.rotation.y = d.yaw;
+      d.mesh.rotation.x = k * (Math.PI / 2) * 0.92;
+      d.mesh.rotation.z = k * 0.4 * d.fallDir;
+      if (d.t > 1.6) {
+        d.mesh.visible = false;
+        d.mesh.rotation.x = 0;
+        d.mesh.rotation.z = 0;
+        this.deaths.delete(id);
       }
     }
   }

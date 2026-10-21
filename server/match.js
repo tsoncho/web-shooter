@@ -14,6 +14,7 @@ import {
   createPlayer,
   emptyInput,
   integratePlayer,
+  refillWeapon,
   serializePlayer,
   spawnPlayer,
   tryFire,
@@ -56,6 +57,12 @@ export class MatchRoom {
         : TEAM.DEFENDERS;
     }
     const p = createPlayer(socket.id, name || "Operative", t, false);
+    if (this.phase === PHASE.WARMUP || this.phase === PHASE.BUY || this.phase === PHASE.LIVE) {
+      p.owned = { pistol: true, smg: true, rifle: true };
+      refillWeapon(p, WEAPON.PISTOL);
+      refillWeapon(p, WEAPON.SMG);
+      refillWeapon(p, WEAPON.RIFLE);
+    }
     this.players.set(socket.id, p);
     this.sockets.set(socket.id, socket);
     spawnPlayer(p, this);
@@ -106,6 +113,10 @@ export class MatchRoom {
           : TEAM.DEFENDERS;
       const id = `bot-${roomSeq++}`;
       const bot = createPlayer(id, botName(), team, true);
+      bot.owned.smg = true;
+      bot.owned.rifle = true;
+      bot.weapon = WEAPON.RIFLE;
+      refillWeapon(bot);
       this.players.set(id, bot);
       spawnPlayer(bot, this);
     }
@@ -137,6 +148,13 @@ export class MatchRoom {
     this.phase = PHASE.WARMUP;
     this.phaseT = MATCH.warmupTime;
     this.started = true;
+    // Practice loadout — all guns unlocked during warmup
+    for (const p of this.players.values()) {
+      p.owned = { pistol: true, smg: true, rifle: true };
+      refillWeapon(p, WEAPON.PISTOL);
+      refillWeapon(p, WEAPON.SMG);
+      refillWeapon(p, WEAPON.RIFLE);
+    }
     this.broadcastEvent({ type: "phase", phase: this.phase, t: this.phaseT });
   }
 

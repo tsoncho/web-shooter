@@ -6,6 +6,7 @@ import {
   TICK_DT,
   WEAPON,
   WEAPONS,
+  recoilKick,
 } from "../shared/constants.js";
 import { aimDirection, clamp, wishXZ } from "../shared/math.js";
 
@@ -31,6 +32,12 @@ export function createPlayer(id, name, team, isBot = false) {
     armor: 0,
     money: ECONOMY.startMoney,
     weapon: WEAPON.PISTOL,
+    owned: { pistol: true, smg: false, rifle: false },
+    ammo: {
+      pistol: { mag: WEAPONS.pistol.magSize, reserve: WEAPONS.pistol.reserve },
+      smg: { mag: WEAPONS.smg.magSize, reserve: WEAPONS.smg.reserve },
+      rifle: { mag: WEAPONS.rifle.magSize, reserve: WEAPONS.rifle.reserve },
+    },
     mag: WEAPONS.pistol.magSize,
     reserve: WEAPONS.pistol.reserve,
     alive: true,
@@ -39,6 +46,9 @@ export function createPlayer(id, name, team, isBot = false) {
     reloading: false,
     reloadT: 0,
     fireCd: 0,
+    spray: 0,
+    sprayReset: 0,
+    switchT: 0,
     plantT: 0,
     defuseT: 0,
     hasKit: false,
@@ -100,10 +110,41 @@ function hashId(id) {
   return h;
 }
 
-export function refillWeapon(p) {
-  const w = WEAPONS[p.weapon] || WEAPONS.pistol;
-  p.mag = w.magSize;
-  p.reserve = w.reserve;
+export function refillWeapon(p, id = p.weapon) {
+  const w = WEAPONS[id] || WEAPONS.pistol;
+  if (!p.ammo[id]) p.ammo[id] = { mag: w.magSize, reserve: w.reserve };
+  p.ammo[id].mag = w.magSize;
+  p.ammo[id].reserve = w.reserve;
+  if (p.weapon === id) {
+    p.mag = p.ammo[id].mag;
+    p.reserve = p.ammo[id].reserve;
+  }
+}
+
+function syncAmmoFromBag(p) {
+  const bag = p.ammo[p.weapon] || { mag: 0, reserve: 0 };
+  p.mag = bag.mag;
+  p.reserve = bag.reserve;
+}
+
+function storeAmmoToBag(p) {
+  if (!p.ammo[p.weapon]) p.ammo[p.weapon] = { mag: 0, reserve: 0 };
+  p.ammo[p.weapon].mag = p.mag;
+  p.ammo[p.weapon].reserve = p.reserve;
+}
+
+export function switchWeapon(p, id) {
+  if (!WEAPONS[id] || !p.owned?.[id] || p.weapon === id) return false;
+  if (p.reloading || p.switchT > 0) return false;
+  storeAmmoToBag(p);
+  p.weapon = id;
+  syncAmmoFromBag(p);
+  p.reloading = false;
+  p.reloadT = 0;
+  p.fireCd = 0.18;
+  p.switchT = 0.28;
+  p.spray = 0;
+  return true;
 }
 
 export function buyItem(p, item, phaseBuy) {
@@ -125,11 +166,17 @@ export function buyItem(p, item, phaseBuy) {
   }
   const w = WEAPONS[item];
   if (!w) return { ok: false, reason: "unknown" };
-  if (p.weapon === item && p.mag > 0) return { ok: false, reason: "owned" };
+  if (p.owned?.[item]) {
+    // already own — just equip
+    switchWeapon(p, item);
+    return { ok: true, equipped: true };
+  }
   if (p.money < w.price) return { ok: false, reason: "money" };
   p.money -= w.price;
-  p.weapon = item;
-  refillWeapon(p);
+  p.owned[item] = true;
+  refillWeapon(p, item);
+  storeAmmoToBag(p);
+  switchWeapon(p, item);
   return { ok: true };
 }
 
@@ -150,14 +197,25 @@ function resolveColliders(p) {
   p.z = clamp(p.z, -h, h);
 }
 
+function approach(current, target, maxDelta) {
+  const d = target - current;
+  if (Math.abs(d) <= maxDelta) return target;
+  return current + Math.sign(d) * maxDelta;
+}
+
 export function integratePlayer(p, dt) {
   if (!p.alive) return;
   if (p.spawnLock > 0) p.spawnLock -= dt;
+  if (p.switchT > 0) p.switchT -= dt;
+  if (p.sprayReset > 0) {
+    p.sprayReset -= dt;
+    if (p.sprayReset <= 0) p.spray = 0;
+  }
 
   const inp = p.input;
   p.yaw = inp.yaw;
   p.pitch = clamp(inp.pitch, -1.4, 1.4);
-  p.ads = !!inp.ads && !p.reloading;
+  p.ads = !!inp.ads && !p.reloading && p.switchT <= 0;
 
   if (p.reloading) {
     p.reloadT -= dt;
@@ -167,18 +225,24 @@ export function integratePlayer(p, dt) {
       const take = Math.min(need, p.reserve);
       p.mag += take;
       p.reserve -= take;
+      storeAmmoToBag(p);
       p.reloading = false;
+      p.spray = 0;
     }
   }
 
-  if (inp.reload && !p.reloading && p.mag < WEAPONS[p.weapon].magSize && p.reserve > 0) {
+  if (
+    inp.reload &&
+    !p.reloading &&
+    p.switchT <= 0 &&
+    p.mag < WEAPONS[p.weapon].magSize &&
+    p.reserve > 0
+  ) {
     p.reloading = true;
-    p.reloadT = p.weapon === WEAPON.PISTOL ? 1.4 : 2.1;
+    p.reloadT = p.weapon === WEAPON.PISTOL ? 1.25 : 2.0;
   }
 
-  if (inp.wantWeapon && WEAPONS[inp.wantWeapon] && inp.wantWeapon !== p.weapon) {
-    // quick switch only to owned default pistol always; guns bought already set
-  }
+  if (inp.wantWeapon) switchWeapon(p, inp.wantWeapon);
 
   const grounded = p.y <= MATCH.eyeHeight + 0.001;
   p.grounded = grounded;
@@ -196,11 +260,17 @@ export function integratePlayer(p, dt) {
   if (ml > 1e-6) {
     mx /= ml;
     mz /= ml;
+  } else {
+    mx = 0;
+    mz = 0;
   }
   const speed =
     MATCH.moveSpeed * (inp.sprint && !p.ads ? MATCH.sprintMult : 1) * (p.ads ? 0.72 : 1);
-  p.vx = mx * speed;
-  p.vz = mz * speed;
+  const wishX = mx * speed;
+  const wishZ = mz * speed;
+  const accel = (grounded ? MATCH.accel : MATCH.airAccel) * dt;
+  p.vx = approach(p.vx, wishX, accel);
+  p.vz = approach(p.vz, wishZ, accel);
 
   if (inp.jump && grounded) p.vy = MATCH.jumpVel;
 
@@ -218,21 +288,28 @@ export function integratePlayer(p, dt) {
 }
 
 export function tryFire(p, players) {
-  if (!p.alive || p.reloading || p.fireCd > 0 || p.spawnLock > 0) return null;
+  if (!p.alive || p.reloading || p.fireCd > 0 || p.spawnLock > 0 || p.switchT > 0)
+    return null;
   if (!p.input.fire) return null;
   const w = WEAPONS[p.weapon];
   if (p.mag <= 0) return null;
 
   p.mag -= 1;
+  storeAmmoToBag(p);
   p.fireCd = 60 / w.rpm;
+  const kick = recoilKick(p.weapon, p.spray);
+  p.spray += 1;
+  p.sprayReset = 0.22;
 
-  const moving = len2(p.vx, p.vz) > 0.4;
-  let spread = p.ads ? w.adsSpread : w.spread * 0.65;
-  if (moving) spread += w.moveSpread * 0.5;
-  spread += w.recoil * (Math.random() * 0.35);
+  const moving = len2(p.vx, p.vz) > 0.5;
+  let spread = p.ads ? w.adsSpread : w.spread;
+  if (moving) spread += w.moveSpread * (p.ads ? 0.35 : 0.7);
+  spread *= 0.35 + Math.min(p.spray, 8) * 0.04;
 
-  const yaw = p.yaw + (Math.random() - 0.5) * spread * 2;
-  const pitch = p.pitch + (Math.random() - 0.5) * spread * 2;
+  const yaw =
+    p.yaw + kick.yaw + (Math.random() - 0.5) * spread * 2;
+  const pitch =
+    p.pitch + kick.pitch + (Math.random() - 0.5) * spread * 2;
   const dir = aimDirection(yaw, pitch);
   const origin = { x: p.x, y: p.y, z: p.z };
 
@@ -488,6 +565,7 @@ export function serializePlayer(p, selfId) {
     armor: p.armor,
     money: p.money,
     weapon: p.weapon,
+    owned: p.owned,
     mag: p.mag,
     reserve: p.reserve,
     alive: p.alive,
@@ -500,6 +578,8 @@ export function serializePlayer(p, selfId) {
     kills: p.kills,
     deaths: p.deaths,
     grounded: p.grounded,
+    vx: +p.vx.toFixed(2),
+    vz: +p.vz.toFixed(2),
     seq: p.seq,
     self: p.id === selfId,
   };

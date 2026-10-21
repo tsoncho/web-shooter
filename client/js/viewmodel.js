@@ -8,7 +8,9 @@ export class ViewModel {
     this.root.position.set(0.22, -0.22, -0.42);
     camera.add(this.root);
     this.kick = 0;
+    this.kickYaw = 0;
     this.adsBlend = 0;
+    this.switchT = 0;
     this.weapon = "pistol";
     this.meshes = {};
     this.muzzle = new THREE.PointLight(0xffe0a0, 0, 5, 2);
@@ -39,7 +41,6 @@ export class ViewModel {
         roughness: 0.32,
       })
     );
-    // Center body so barrel tip sits at -Z
     body.position.z = -length * 0.35;
     g.add(body);
 
@@ -85,21 +86,30 @@ export class ViewModel {
     return g;
   }
 
-  setWeapon(id) {
+  setWeapon(id, animate = false) {
+    if (id === this.weapon && !animate) {
+      for (const [k, m] of Object.entries(this.meshes)) m.visible = k === id;
+      return;
+    }
     this.weapon = id;
+    if (animate) this.switchT = 0.28;
     for (const [k, m] of Object.entries(this.meshes)) m.visible = k === id;
     const len = id === "rifle" ? 0.55 : id === "smg" ? 0.42 : 0.28;
     this.muzzle.position.z = -len * 0.95;
   }
 
-  punch() {
-    this.kick = 1;
-    this.muzzle.intensity = 2.2;
-    this.muzzle.userData.life = 0.05;
+  punch(up = 1, side = 0) {
+    this.kick = Math.min(1.4, this.kick + 0.55 * up);
+    this.kickYaw = THREE.MathUtils.clamp(this.kickYaw + side * 0.8, -1, 1);
+    this.muzzle.intensity = 2.4;
+    this.muzzle.userData.life = 0.045;
   }
 
   update(dt, ads) {
-    this.kick = Math.max(0, this.kick - dt * 9);
+    this.kick = Math.max(0, this.kick - dt * 11);
+    this.kickYaw = THREE.MathUtils.lerp(this.kickYaw, 0, 1 - Math.pow(0.001, dt));
+    if (this.switchT > 0) this.switchT = Math.max(0, this.switchT - dt);
+
     this.adsBlend = THREE.MathUtils.lerp(
       this.adsBlend,
       ads ? 1 : 0,
@@ -108,11 +118,15 @@ export class ViewModel {
     const hip = new THREE.Vector3(0.22, -0.22, -0.42);
     const aim = new THREE.Vector3(0.0, -0.16, -0.32);
     this.root.position.lerpVectors(hip, aim, this.adsBlend);
-    this.root.position.z += this.kick * 0.04;
-    this.root.rotation.x = -this.kick * 0.08;
+    // Switch dip
+    const dip = this.switchT > 0 ? Math.sin((this.switchT / 0.28) * Math.PI) * 0.14 : 0;
+    this.root.position.y -= dip;
+    this.root.position.z += this.kick * 0.05;
+    this.root.rotation.x = -this.kick * 0.1;
+    this.root.rotation.y = this.kickYaw * 0.06;
     if (this.muzzle.userData.life > 0) {
       this.muzzle.userData.life -= dt;
-      this.muzzle.intensity *= 0.55;
+      this.muzzle.intensity *= 0.5;
       if (this.muzzle.userData.life <= 0) this.muzzle.intensity = 0;
     }
   }

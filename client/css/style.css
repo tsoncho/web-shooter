@@ -266,6 +266,41 @@ kbd {
   color: var(--muted);
 }
 
+.weapon-slots {
+  display: flex;
+  gap: 0.35rem;
+  justify-content: flex-end;
+  margin-bottom: 0.35rem;
+}
+
+.wslot {
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  padding: 0.15rem 0.4rem;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  opacity: 0.55;
+}
+
+.wslot.active {
+  opacity: 1;
+  color: var(--ink);
+  border-color: var(--accent);
+}
+
+.wslot.owned:not(.active) {
+  opacity: 0.85;
+  color: var(--ink);
+}
+
+.wslot.locked {
+  opacity: 0.35;
+}
+
+.wslot kbd {
+  margin-right: 0.15rem;
+}
+
 .crosshair {
   position: absolute;
   top: 50%;
@@ -273,6 +308,12 @@ kbd {
   width: 16px;
   height: 16px;
   transform: translate(-50%, -50%);
+  transition: width 60ms linear, height 60ms linear;
+}
+
+.crosshair.punch {
+  width: 28px;
+  height: 28px;
 }
 
 .crosshair::before,
@@ -324,6 +365,88 @@ kbd {
   }
 }
 
+.kill-confirm {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  pointer-events: none;
+  text-align: center;
+}
+
+.kill-confirm.show {
+  animation: killConfirm 0.85s ease-out forwards;
+}
+
+.kill-x {
+  width: 54px;
+  height: 54px;
+  margin: 0 auto 0.4rem;
+  position: relative;
+}
+
+.kill-x::before,
+.kill-x::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 100%;
+  background: var(--accent);
+  box-shadow: 0 0 12px rgba(200, 245, 66, 0.55);
+}
+
+.kill-x::before {
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.kill-x::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.kill-confirm-label {
+  font-family: var(--display);
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--accent);
+  text-shadow: 0 0 18px rgba(200, 245, 66, 0.35);
+}
+
+.kill-confirm.headshot .kill-x::before,
+.kill-confirm.headshot .kill-x::after {
+  background: #ff6b4a;
+  box-shadow: 0 0 14px rgba(255, 107, 74, 0.5);
+}
+
+.kill-confirm.headshot .kill-confirm-label {
+  color: #ff6b4a;
+  text-shadow: 0 0 18px rgba(255, 107, 74, 0.45);
+}
+
+@keyframes killConfirm {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.4);
+  }
+  18% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.15);
+  }
+  35% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.05);
+  }
+}
+
 .damage-vignette {
   position: absolute;
   inset: 0;
@@ -334,6 +457,79 @@ kbd {
 
 .damage-vignette.show {
   opacity: 1;
+}
+
+.death-overlay {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(ellipse at center, rgba(40, 0, 0, 0.15) 0%, rgba(20, 0, 0, 0.72) 70%, rgba(0, 0, 0, 0.88) 100%);
+  transition: opacity 280ms ease;
+}
+
+.death-overlay.show {
+  opacity: 1;
+  animation: deathPulse 2.4s ease-in-out infinite;
+}
+
+.death-inner {
+  text-align: center;
+  transform: translateY(8%);
+  animation: deathIn 420ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
+}
+
+.death-title {
+  font-family: var(--display);
+  font-size: clamp(2.4rem, 7vw, 3.4rem);
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  color: var(--danger);
+  text-shadow: 0 0 28px rgba(255, 77, 77, 0.45);
+}
+
+.death-by {
+  margin-top: 0.65rem;
+  font-family: var(--display);
+  font-size: 1.15rem;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+
+.death-by strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+@keyframes deathIn {
+  from {
+    opacity: 0;
+    transform: translateY(18%) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(8%) scale(1);
+  }
+}
+
+@keyframes deathPulse {
+  0%,
+  100% {
+    background:
+      radial-gradient(ellipse at center, rgba(40, 0, 0, 0.15) 0%, rgba(20, 0, 0, 0.72) 70%, rgba(0, 0, 0, 0.88) 100%);
+  }
+  50% {
+    background:
+      radial-gradient(ellipse at center, rgba(60, 0, 0, 0.22) 0%, rgba(28, 0, 0, 0.78) 70%, rgba(0, 0, 0, 0.9) 100%);
+  }
+}
+
+.crosshair.hidden-death {
+  opacity: 0;
+  transition: opacity 200ms ease;
 }
 
 .interact {
@@ -356,9 +552,22 @@ kbd {
   font-size: 1rem;
 }
 
-.killfeed div {
+.killfeed div,
+.killfeed-row {
   background: rgba(0, 0, 0, 0.35);
   padding: 0.15rem 0.45rem;
+  animation: feedIn 220ms ease-out;
+}
+
+@keyframes feedIn {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 .banner {

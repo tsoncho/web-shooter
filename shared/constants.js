@@ -21,56 +21,79 @@ export const WEAPON = {
   RIFLE: "rifle",
 };
 
+export const WEAPON_ORDER = ["pistol", "smg", "rifle"];
+
 export const WEAPONS = {
   pistol: {
     id: "pistol",
     name: "Sidearm",
+    slot: 1,
     price: 0,
     damage: 28,
     headMult: 3.2,
-    rpm: 400,
+    rpm: 380,
     magSize: 12,
     reserve: 36,
-    spread: 0.012,
-    recoil: 0.018,
-    moveSpread: 0.02,
-    adsSpread: 0.006,
+    spread: 0.008,
+    moveSpread: 0.014,
+    adsSpread: 0.003,
     range: 90,
     automatic: false,
+    recoilUp: 0.028,
+    recoilSide: 0.012,
+    recovery: 8,
   },
   smg: {
     id: "smg",
     name: "SMG",
+    slot: 2,
     price: 1500,
     damage: 22,
     headMult: 2.4,
-    rpm: 750,
+    rpm: 780,
     magSize: 30,
     reserve: 90,
-    spread: 0.018,
-    recoil: 0.014,
-    moveSpread: 0.028,
-    adsSpread: 0.01,
+    spread: 0.012,
+    moveSpread: 0.02,
+    adsSpread: 0.006,
     range: 70,
     automatic: true,
+    recoilUp: 0.016,
+    recoilSide: 0.014,
+    recovery: 10,
   },
   rifle: {
     id: "rifle",
     name: "Rifle",
+    slot: 3,
     price: 2700,
     damage: 33,
     headMult: 3.8,
-    rpm: 600,
+    rpm: 560,
     magSize: 30,
     reserve: 90,
-    spread: 0.01,
-    recoil: 0.02,
-    moveSpread: 0.035,
-    adsSpread: 0.004,
+    spread: 0.007,
+    moveSpread: 0.024,
+    adsSpread: 0.0025,
     range: 120,
     automatic: true,
+    recoilUp: 0.022,
+    recoilSide: 0.01,
+    recovery: 7,
   },
 };
+
+/** Spray kick per shot index (server + client visual). */
+export function recoilKick(weaponId, shotIndex) {
+  const w = WEAPONS[weaponId] || WEAPONS.pistol;
+  const i = Math.max(0, shotIndex);
+  const climb = w.recoilUp * (1 + Math.min(i, 10) * 0.08);
+  const side =
+    w.recoilSide *
+    Math.sin(i * 1.7 + 0.4) *
+    (0.55 + Math.min(i, 8) * 0.06);
+  return { pitch: climb, yaw: side };
+}
 
 export const ECONOMY = {
   startMoney: 800,
@@ -99,9 +122,11 @@ export const MATCH = {
   playerRadius: 0.45,
   eyeHeight: 1.65,
   crouchEye: 1.15,
-  moveSpeed: 6.2,
-  sprintMult: 1.15,
-  jumpVel: 7.2,
+  moveSpeed: 6.8,
+  sprintMult: 1.22,
+  accel: 28,
+  airAccel: 10,
+  jumpVel: 7.4,
   gravity: 22,
   respawnWarmup: 3,
 };

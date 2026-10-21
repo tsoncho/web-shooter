@@ -37,6 +37,7 @@
         <ul class="controls">
           <li><kbd>WASD</kbd> Move · <kbd>Shift</kbd> Sprint · <kbd>Space</kbd> Jump</li>
           <li><kbd>Mouse</kbd> Aim · <kbd>Click</kbd> Fire · <kbd>R</kbd> Reload · <kbd>RMB</kbd> ADS</li>
+          <li><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> Weapons · <kbd>Q</kbd> Last · Scroll cycle</li>
           <li><kbd>E</kbd> Plant / Defuse · <kbd>B</kbd> Buy · <kbd>Tab</kbd> Scoreboard</li>
         </ul>
       </div>
@@ -63,6 +64,11 @@
           <div><span class="lbl">$</span> <span id="money">800</span></div>
         </div>
         <div class="ammo">
+          <div id="weapon-slots" class="weapon-slots">
+            <span data-slot="pistol" class="wslot active"><kbd>1</kbd> Sidearm</span>
+            <span data-slot="smg" class="wslot locked"><kbd>2</kbd> SMG</span>
+            <span data-slot="rifle" class="wslot locked"><kbd>3</kbd> Rifle</span>
+          </div>
           <span id="mag">12</span><span class="dim">/</span><span id="reserve">36</span>
           <div id="weapon-name" class="wname">Sidearm</div>
         </div>
@@ -70,7 +76,17 @@
 
       <div id="crosshair" class="crosshair"></div>
       <div id="hit-marker" class="hit-marker"></div>
+      <div id="kill-confirm" class="kill-confirm" aria-hidden="true">
+        <div class="kill-x"></div>
+        <div id="kill-confirm-label" class="kill-confirm-label">ELIMINATED</div>
+      </div>
       <div id="damage-vignette" class="damage-vignette"></div>
+      <div id="death-overlay" class="death-overlay" aria-hidden="true">
+        <div class="death-inner">
+          <p class="death-title">YOU DIED</p>
+          <p id="death-by" class="death-by"></p>
+        </div>
+      </div>
       <div id="interact" class="interact"></div>
       <div id="killfeed" class="killfeed"></div>
       <div id="banner" class="banner"></div>
@@ -109,7 +125,8 @@
           "three": "/node_modules/three/build/three.module.js",
           "three/addons/": "/node_modules/three/examples/jsm/",
           "socket.io-client": "/node_modules/socket.io-client/dist/socket.io.esm.min.js",
-          "shared/constants.js": "/shared/constants.js"
+          "shared/constants.js": "/shared/constants.js",
+          "shared/math.js": "/shared/math.js"
         }
       }
     </script>
